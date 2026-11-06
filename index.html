@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control de Stock en Tiempo Real</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-100 p-4">
+    <div class="max-w-4xl mx-auto bg-white rounded-lg shadow p-6">
+        <h1 class="text-2xl font-bold mb-4 text-gray-800">Control de Stock en Tiempo Real</h1>
+
+        <div class="mb-4">
+            <input type="text" id="buscador" placeholder="Buscar producto o SKU..." class="w-full p-2 border rounded" oninput="filtrarProductos()">
+        </div>
+
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="bg-gray-200 text-gray-700">
+                        <th class="p-2">Producto</th>
+                        <th class="p-2">SKU</th>
+                        <th class="p-2">Categoría</th>
+                        <th class="p-2 text-center">Stock</th>
+                        <th class="p-2 text-center">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="tabla-productos">
+                    <tr><td colspan="5" class="p-4 text-center text-gray-500">Conectando con Supabase...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // URL corregida: ernskxgulmvscvqbemio (con la "v" después de "ulm")
+        const SUPABASE_URL = 'https://ernskxgulmvscvqbemio.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_D_3n6lVTQ84oa7uBrWwc0Q_b0ln4H7v';
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let productosGlobal = [];
+
+        // Evita que un nombre con caracteres raros rompa el HTML
+        function esc(valor) {
+            const div = document.createElement('div');
+            div.textContent = valor ?? '';
+            return div.innerHTML;
+        }
+
+        async function cargarProductos() {
+            const { data, error } = await supabaseClient
+                .from('productos')
+                .select('*')
+                .order('nombre');
+
+            if (error) {
+                console.error('Error al cargar productos:', error);
+                document.getElementById('tabla-productos').innerHTML =
+                    `<tr><td colspan="5" class="p-4 text-center text-red-500">Error de conexión: ${esc(error.message)}</td></tr>`;
+                return;
+            }
+
+            productosGlobal = data;
+            filtrarProductos();
+        }
+
+        window.cambiarStock = async function (id, stockActual, cambio) {
+            const nuevoStock = Math.max(0, stockActual + cambio);
+            const { error } = await supabaseClient
+                .from('productos')
+                .update({ stock: nuevoStock })
+                .eq('id', id);
+
+            if (error) {
+                console.error('Error al actualizar stock:', error);
+                alert('No se pudo actualizar el stock: ' + error.message);
+            } else {
+                cargarProductos();
+            }
+        };
+
+        window.filtrarProductos = function () {
+            const texto = document.getElementById('buscador').value.toLowerCase();
+            const filtrados = productosGlobal.filter(p =>
+                (p.nombre && p.nombre.toLowerCase().includes(texto)) ||
+                (p.sku && p.sku.toLowerCase().includes(texto))
+            );
+            renderizarTabla(filtrados);
+        };
+
+        function renderizarTabla(productos) {
+            const tbody = document.getElementById('tabla-productos');
+
+            if (productos.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-500">No se encontraron productos.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = productos.map(p => {
+                const alerta = p.stock <= (p.stock_minimo || 0) ? 'bg-red-50 text-red-700 font-bold' : '';
+                return `
+                    <tr class="border-b ${alerta}">
+                        <td class="p-2">${esc(p.nombre)}</td>
+                        <td class="p-2 text-sm text-gray-500">${esc(p.sku) || '-'}</td>
+                        <td class="p-2 text-sm text-gray-600">${esc(p.categoria) || '-'}</td>
+                        <td class="p-2 text-center font-bold text-lg">${p.stock}</td>
+                        <td class="p-2 text-center">
+                            <button onclick="cambiarStock(${p.id}, ${p.stock}, -1)" class="bg-red-500 text-white px-3 py-1 rounded font-bold hover:bg-red-600">-</button>
+                            <button onclick="cambiarStock(${p.id}, ${p.stock}, 1)" class="bg-green-500 text-white px-3 py-1 rounded font-bold hover:bg-green-600 ml-2">+</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // Actualización en tiempo real (requiere activar Realtime en la tabla "productos")
+        supabaseClient
+            .channel('public:productos')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, () => {
+                cargarProductos();
+            })
+            .subscribe();
+
+        cargarProductos();
+    </script>
+</body>
+</html>
